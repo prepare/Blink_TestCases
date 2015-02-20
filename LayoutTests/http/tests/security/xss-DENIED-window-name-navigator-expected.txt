@@ -1,0 +1,6 @@
+ALERT: SecurityError: Blocked a frame with origin "null" from accessing a cross-origin frame.
+ALERT: PASS
+ALERT: PASS
+ALERT: PASS
+ALERT: SecurityError: Blocked a frame with origin "null" from accessing a cross-origin frame.
+ 
