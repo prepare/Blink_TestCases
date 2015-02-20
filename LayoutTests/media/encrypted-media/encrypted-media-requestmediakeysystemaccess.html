@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Test navigator.requestMediaKeySystemAccess()</title>
+        <script src="encrypted-media-utils.js"></script>
+        <script src="../../resources/testharness.js"></script>
+        <script src="../../resources/testharnessreport.js"></script>
+    </head>
+    <body>
+        <div id="log"></div>
+        <script>
+            function expect_error(keySystem, configurations, expectedError, testName) {
+                promise_test(function(test) {
+                    return navigator.requestMediaKeySystemAccess(keySystem, configurations).then(function(a) {
+                        assert_unreached('Unexpected requestMediaKeySystemAccess() success.');
+                    }, function(e) {
+                        assert_equals(e.name, expectedError);
+                    });
+                }, testName);
+            }
+
+            function assert_subset(actual, expected, path) {
+                if (typeof expected == 'string') {
+                    assert_equals(actual, expected, path);
+                } else {
+                    if (expected.hasOwnProperty('length'))
+                        assert_equals(actual.length, expected.length, path + '.length');
+                    for (property in expected)
+                        assert_subset(actual[property], expected[property], path + '.' + property);
+                }
+            }
+
+            function expect_config(keySystem, configurations, expectedConfiguration, testName) {
+                promise_test(function(test) {
+                    return navigator.requestMediaKeySystemAccess(keySystem, configurations).then(function(a) {
+                        assert_subset(a.getConfiguration(), expectedConfiguration, 'getConfiguration()');
+                    });
+                }, testName);
+            }
+
+            // Tests for keySystem.
+            expect_error('', [{}], 'InvalidAccessError', 'Empty keySystem');
+            expect_error('com.example.unsupported', [{}], 'NotSupportedError', 'Unsupported keySystem');
+            expect_error('org.w3.clearkey.', [{}], 'NotSupportedError', 'keySystem ends with "."');
+            expect_error('org.w3.ClearKey', [{}], 'NotSupportedError', 'Capitalized keySystem');
+            expect_error('org.w3.clearke\u028F', [{}], 'NotSupportedError', 'Non-ASCII keySystem');
+
+            // Tests for trivial configurations.
+            expect_error('org.w3.clearkey', [], 'InvalidAccessError', 'Empty supportedConfigurations');
+            expect_config('org.w3.clearkey', [{}], {}, 'Empty configuration');
+
+            // Various combinations of supportedConfigurations.
+            expect_config('org.w3.clearkey', [{
+                initDataTypes: ['webm'],
+                audioCapabilities: [{contentType: 'audio/webm'}],
+                videoCapabilities: [{contentType: 'video/webm'}],
+            }], {
+                initDataTypes: ['webm'],
+                audioCapabilities: [{contentType: 'audio/webm'}],
+                videoCapabilities: [{contentType: 'video/webm'}],
+            }, 'Basic supported configuration');
+
+            expect_config('org.w3.clearkey', [{
+                initDataTypes: ['fakeidt', 'webm'],
+                audioCapabilities: [{contentType: 'audio/fake'}, {contentType: 'audio/webm'}],
+                videoCapabilities: [{contentType: 'video/fake'}, {contentType: 'video/webm'}],
+            }], {
+                initDataTypes: ['webm'],
+                audioCapabilities: [{contentType: 'audio/webm'}],
+                videoCapabilities: [{contentType: 'video/webm'}],
+            }, 'Partially supported configuration');
+
+            expect_config('org.w3.clearkey', [{
+                audioCapabilities: [{contentType: 'audio/webm; codecs=vorbis'}],
+            }], {
+                audioCapabilities: [{contentType: 'audio/webm; codecs=vorbis'}],
+            }, 'Supported audio codec');
+
+            expect_config('org.w3.clearkey', [{
+                audioCapabilities: [{contentType: 'audio/webm;  codecs="vorbis"'}],
+            }], {
+                audioCapabilities: [{contentType: 'audio/webm;  codecs="vorbis"'}],
+            }, 'ContentType formatting must be preserved');
+
+            expect_error('org.w3.clearkey', [{
+                audioCapabilities: [{contentType: 'audio/webm; codecs=fake'}],
+            }], 'NotSupportedError', 'Unsupported audio codec');
+
+            expect_error('org.w3.clearkey', [{
+                audioCapabilities: [
+                    {contentType: 'audio/webm; codecs=mp4a'},
+                    {contentType: 'audio/webm; codecs=mp4a.40.2'}
+                ],
+            }], 'NotSupportedError', 'Mismatched audio container/codec');
+
+            expect_config('org.w3.clearkey', [{
+                videoCapabilities: [{contentType: 'video/webm; codecs=vp8'}],
+            }], {
+                videoCapabilities: [{contentType: 'video/webm; codecs=vp8'}],
+            }, 'Supported video codec');
+
+            // FIXME: crbug.com/457384. video shouldn't be allowed in
+            // audioCapabilities (and vice versa).
+//          expect_error('org.w3.clearkey', [{
+//              audioCapabilities: [{contentType: 'video/webm; codecs=vp8'}],
+//          }], 'NotSupportedError', 'Video codec specified in audio field');
+
+//          expect_error('org.w3.clearkey', [{
+//              videoCapabilities: [{contentType: 'audio/webm; codecs=vorbis'}],
+//          }], 'NotSupportedError', 'Audio codec specified in video field');
+
+            expect_error('org.w3.clearkey', [{
+                audioCapabilities: [{contentType: 'video/webm; codecs=fake'}],
+            }], 'NotSupportedError', 'Unsupported video codec');
+
+            expect_error('org.w3.clearkey', [{
+                audioCapabilities: [
+                    {contentType: 'audio/webm; codecs=avc1'},
+                    {contentType: 'audio/webm; codecs=avc1.42e01e'}
+                ],
+            }], 'NotSupportedError', 'Mismatched video container/codec');
+
+            expect_config('org.w3.clearkey', [
+                {initDataTypes: ['fakeidt']},
+                {initDataTypes: ['webm']}
+            ], {initDataTypes: ['webm']}, 'Two configurations, one supported');
+
+            expect_config('org.w3.clearkey', [
+                {initDataTypes: ['webm']},
+                {}
+            ], {initDataTypes: ['webm']}, 'Two configurations, both supported');
+
+            // Audio MIME type does not support video codecs.
+            expect_error('org.w3.clearkey', [{
+                audioCapabilities: [
+                    {contentType: 'audio/webm; codecs="vp8,vorbis"'},
+                    {contentType: 'audio/webm; codecs="vorbis, vp8"'},
+                    {contentType: 'audio/webm; codecs="vp8"'}
+                ],
+            }], 'NotSupportedError', 'Audio MIME type does not support video codecs.');
+
+            // Video MIME type does not support audio codecs.
+            // FIXME: crbug.com/457386.
+//          expect_error('org.w3.clearkey', [{
+//              videoCapabilities: [
+//                  {contentType: 'video/webm; codecs="vp8,vorbis"'},
+//                  {contentType: 'video/webm; codecs="vorbis, vp8"'},
+//                  {contentType: 'video/webm; codecs="vorbis"'}
+//              ],
+//          }], 'NotSupportedError', 'Video MIME type does not support audio codecs.');
+
+            // WebM does not support AVC1/AAC.
+            expect_error('org.w3.clearkey', [{
+                audioCapabilities: [
+                    {contentType: 'audio/webm; codecs="aac"'},
+                    {contentType: 'audio/webm; codecs="avc1"'},
+                    {contentType: 'audio/webm; codecs="vp8,aac"'}
+                ],
+            }], 'NotSupportedError', 'WebM audio does not support AVC1/AAC.');
+
+            expect_error('org.w3.clearkey', [{
+                videoCapabilities: [
+                    {contentType: 'video/webm; codecs="aac"'},
+                    {contentType: 'video/webm; codecs="avc1"'},
+                    {contentType: 'video/webm; codecs="vp8,aac"'}
+                ],
+            }], 'NotSupportedError', 'WebM video does not support AVC1/AAC.');
+        </script>
+    </body>
+</html>

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>MediaKeySession lifetime after release()</title>
+        <script src="encrypted-media-utils.js"></script>
+        <script src="../../resources/testharness.js"></script>
+        <script src="../../resources/testharnessreport.js"></script>
+    </head>
+    <body>
+        <div id="log"></div>
+        <script>
+            // Since MediaKeySession (but not MediaKeys) are ActiveDOMObjects,
+            // we can determine when they are garbage collected.
+            // MediaKeySessions remain as long as:
+            //   JavaScript has a reference to it
+            //   OR (MediaKeys is around
+            //       AND the session has not received a close() event)
+            async_test(function(test)
+            {
+                var mediaKeys;
+                var mediaKeySession1;
+                var mediaKeySession2;
+                var initDataType = getInitDataType();
+                var initData = getInitData(initDataType);
+                var startingActiveDOMObjectCount = window.internals.activeDOMObjectCount(document);
+
+                function numActiveDOMObjectsCreated()
+                {
+                    return window.internals.activeDOMObjectCount(document) - startingActiveDOMObjectCount;
+                }
+
+                // Create 2 sessions.
+                navigator.requestMediaKeySystemAccess('org.w3.clearkey', [{}]).then(function(access) {
+                    return access.createMediaKeys();
+                }).then(function(result) {
+                    mediaKeys = result;
+
+                    // Verify MediaKeys are not an ActiveDOMObject.
+                    // In non-Oilpan, numActiveDOMObjectsCreate() == 0.
+                    // In Oilpan, numActiveDOMObjectsCreate() <= 2.
+                    // (1 MediaKeysInitializer and
+                    //  1 MediaKeySystemAccessInitializer).
+                    assert_less_than_equal(numActiveDOMObjectsCreated(), 2, 'MediaKeys.create()');
+
+                    mediaKeySession1 = mediaKeys.createSession();
+                    return mediaKeySession1.generateRequest(initDataType, initData);
+                }).then(function() {
+                    // Should be 1 MediaKeySession.
+                    // In non-Oilpan, numActiveDOMObjectsCreate() == 1.
+                    // In Oilpan, numActiveDOMObjectsCreate() <= 4.
+                    // (1 MediaKeysInitializer,
+                    //  1 MediaKeySystemAccessInitializer,
+                    //  1 ContentDecryptionModuleResultPromise and
+                    //  1 MediaKeySession).
+                    assert_less_than_equal(numActiveDOMObjectsCreated(), 4, 'MediaKeys.createSession(1)');
+                    mediaKeySession2 = mediaKeys.createSession();
+                    return mediaKeySession2.generateRequest(initDataType, initData);
+                }).then(function() {
+                    // Should be 2 MediaKeySessions.
+                    // In non-Oilpan, numActiveDOMObjectsCreate() == 2.
+                    // In Oilpan, numActiveDOMObjectsCreate() <= 6.
+                    // (1 MediaKeysInitializer,
+                    //  1 MediaKeySystemAccessInitializer,
+                    //  2 ContentDecryptionModuleResultPromise and
+                    //  2 MediaKeySession).
+                    assert_less_than_equal(numActiveDOMObjectsCreated(), 6, 'mediaKeys.createSession(2)');
+                    // Close the sessions. Once completed, only the JS
+                    // reference to them keeps them around.
+                    return mediaKeySession1.close();
+                }).then(function(result) {
+                    return mediaKeySession2.close();
+                }).then(function(result) {
+                    // Since both sessions have been closed, dropping the
+                    // reference to them from JS will result in the session
+                    // being garbage-collected.
+                    // Should be 2 MediaKeySessions.
+                    // In non-Oilpan, numActiveDOMObjectsCreate() == 2.
+                    // In Oilpan, numActiveDOMObjectsCreate() <= 8.
+                    // (1 MediaKeysInitializer,
+                    //  1 MediaKeySystemAccessInitializer,
+                    //  4 ContentDecryptionModuleResultPromise and
+                    //  2 MediaKeySession).
+                    assert_less_than_equal(numActiveDOMObjectsCreated(), 8, 'after close');
+
+                    mediaKeySession1 = null;
+                    return createGCPromise();
+                }).then(function(result) {
+                    // Only mediaKeySession2 should remain.
+                    assert_less_than_equal(numActiveDOMObjectsCreated(), 2, 'mediaKeySession1 not collected');
+
+                    mediaKeySession2 = null;
+                    return createGCPromise();
+                }).then(function(result) {
+                    assert_less_than_equal(numActiveDOMObjectsCreated(), 1, 'mediaKeySession2 not collected');
+                    test.done();
+                }).catch(function(error) {
+                    forceTestFailureFromPromise(test, error);
+                });
+            }, 'MediaKeySession lifetime after release()');
+        </script>
+    </body>
+</html>

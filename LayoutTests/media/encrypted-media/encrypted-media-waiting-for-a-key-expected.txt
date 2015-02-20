@@ -1,0 +1,8 @@
+EVENT(encrypted)
+EVENT(encrypted)
+EVENT(message)
+EVENT(playing)
+This is a testharness.js-based test.
+PASS Waiting for a key. 
+Harness: the test ran to completion.
+
