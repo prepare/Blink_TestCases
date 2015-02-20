@@ -1,0 +1,58 @@
+<html>
+<head>
+<style>
+.my-class {
+    min-width: 100px;
+    background-color: red;
+}
+</style>
+<script type="text/javascript" src="../../http/tests/inspector-protocol/inspector-protocol-test.js"></script>
+<script type="text/javascript" src="../../http/tests/inspector-protocol/tracing-test.js"></script>
+<script>
+
+function performActions(callback)
+{
+    var div = document.querySelector("#myDiv");
+    div.classList.add("my-class");
+    div.offsetWidth;
+    callback();
+}
+
+function test()
+{
+    InspectorTest.invokeAsyncWithTracing("performActions", finish);
+
+    function finish(devtoolsEvents)
+    {
+        var schedRecalc = InspectorTest.findEvent("ScheduleStyleRecalculation", "I");
+        var recalcBegin = InspectorTest.findEvent("RecalculateStyles", "B");
+        var recalcEnd = InspectorTest.findEvent("RecalculateStyles", "E");
+        InspectorTest.assertEquals(schedRecalc.args.data.frame, recalcBegin.args.beginData.frame, "RecalculateStyles frame");
+        InspectorTest.assert(recalcEnd.args.elementCount > 0, "RecalculateStyles elementCount");
+
+        var invalidate = InspectorTest.findEvent("InvalidateLayout", "I");
+        var layoutBegin = InspectorTest.findEvent("Layout", "B");
+        var layoutEnd = InspectorTest.findEvent("Layout", "E");
+
+        InspectorTest.assertEquals(recalcBegin.args.beginData.frame, invalidate.args.data.frame, "InvalidateLayout frame");
+
+        var beginData = layoutBegin.args.beginData;
+        InspectorTest.assertEquals(invalidate.args.data.frame, beginData.frame, "Layout frame");
+        InspectorTest.assert(beginData.dirtyObjects > 0, "dirtyObjects");
+        InspectorTest.assert(beginData.totalObjects > 0, "totalObjects");
+
+        var endData = layoutEnd.args.endData;
+        InspectorTest.assert(endData.rootNode > 0, "rootNode id");
+        InspectorTest.assert(!!endData.root , "root quad");
+
+        InspectorTest.log("SUCCESS: found all expected events.");
+        InspectorTest.completeTest();
+    }
+
+}
+</script>
+</head>
+<body onLoad="runTest();">
+<div id="myDiv">DIV</div>
+</body>
+</html>
